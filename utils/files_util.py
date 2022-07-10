@@ -1,3 +1,4 @@
+import os
 from os import mkdir
 from datetime import datetime
 from vanga_configs import *
@@ -5,8 +6,6 @@ from vanga_configs import *
 import sqlite3
 from vanga_configs import *
 from vanga_configs import __DETAILED_PRINTING__
-# use for debug printing
-# __DETAILED_PRINTING__ = False
 
 
 # CREATE table for coin_name, ticker_name
@@ -45,6 +44,16 @@ def create_vanga_me_db_file():
                                                             UNIQUE(coin_name, story_id)
                                                         ); """
         cursor.execute(create_stories_data_table_command)
+
+        create_last_predictions_table_command = f""" CREATE TABLE IF NOT EXISTS {prediction_last_x_time_table_name} (
+                                                            coin_name text NOT NULL,
+                                                            correct_wrong integer NOT NULL,
+                                                            evaluation_time text NOT NULL,
+                                                            prediction_accuracy real,
+                                                            days_or_hours text NOT NULL,
+                                                            UNIQUE(coin_name, evaluation_time)
+                                                        );"""
+        cursor.execute(create_last_predictions_table_command)
 
         conn.commit()
         conn.close()
@@ -109,7 +118,7 @@ def write_prediction_to_sql(coin_name, str_date, prediction_evaluation, predicti
         cur = conn.cursor()
 
         cur.execute(insert_date_to_sql_table_command, (coin_name, str_date, real_evaluation, real_sentiment,
-                    prediction_evaluation, prediction_sentiment, correct_prediction))
+                                                       prediction_evaluation, prediction_sentiment, correct_prediction))
         conn.commit()
         conn.close()
         if __DETAILED_PRINTING__:
@@ -294,6 +303,7 @@ def create_data_collecting_directory(directory_name):
 def output_predictions(predictions_dict, collected_time, throwback_collected_time):
     summary_filename = 'Future_Predictions' + '\\' + "_Prediction_Summary " + collected_time + ".txt"
 
+    os.makedirs("Future_Predictions", exist_ok=True)
     with open(summary_filename, "a") as summary_file:
         write_data = f"Collected data for last: {throwback_collected_time}\n" + \
                      f"Collected at: {collected_time}\n" + \
