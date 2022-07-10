@@ -18,20 +18,12 @@ from utils.files_util import output_temporary_data_to_coin_file, output_predicti
 import sqlite3
 
 
-# __DETAILED_PRINTING__ = False
-
-
-# db_filename = "vanga_me.db"
-# yfinance_table_name = 'vanga_me_yfinance_data'
-# prediction_accuracy_table_name = "vanga_prediction_accuracy"
-
-# Change dfObj to_sql function to try except for each row
-
 def collect_data_for_coins_history(coin_name, yf_tickers_name, start_date, end_date):
     try:
         data = yf.download(tickers=yf_tickers_name, start=start_date, end=end_date)
     except Exception as e:
         print(f'Error downloading data from yfinance: {e}')
+        return []
 
     if data.empty:
         return data
@@ -46,10 +38,6 @@ def collect_data_for_coins_history(coin_name, yf_tickers_name, start_date, end_d
 
     Open = data['Open']
     close = data['Close']
-
-    # columns_names = ["coin_name", "evaluation_date", "open_rate", "close_rate"]
-
-    # date_open_close = []
 
     coin = coin_name.replace('"', "")
     try:
@@ -69,23 +57,6 @@ def collect_data_for_coins_history(coin_name, yf_tickers_name, start_date, end_d
         print("Exception class is: ", err.__class__)
 
     return data
-    # return dfObj
-    # date_open_close.append((str(coin_name), str(dates[idx]), float(Open[idx]), float(close[idx])))
-
-    # table_name = yfinance_table_name
-    # conn = sqlite3.connect(db_filename, timeout=20)
-
-    # dfObj = pd.DataFrame(date_open_close, columns=columns_names, index=dates)
-
-    # try:
-    #    dfObj.to_sql(table_name, conn, if_exists='append', index=False)
-    # except sqlite3.Error as err:
-    #    print('Sql error: %s' % (' '.join(err.args)))
-    #    print("Exception class is: ", err.__class__)
-
-    # con.close()
-
-    # return dfObj
 
 
 def write_predictions_accuracy_to_sql_for_each_date(coin_name, yf_tickers_name, start_date, end_date, return_dict):
@@ -150,8 +121,8 @@ def write_predictions_accuracy_to_sql_for_each_date(coin_name, yf_tickers_name, 
             cur = conn.cursor()
 
             for story in coin_stories[0]:
-                insert_story_data_sql_command = f"""INSERT OR IGNORE INTO {stories_data_table_name} VALUES(\"{coin_name}\", 
-                \"{story['id']}\", \"{story['title']}\", \"{story['link']}\", \"{story['published']}\");"""
+                # insert_story_data_sql_command = f"""INSERT OR IGNORE INTO {stories_data_table_name} VALUES(\"{coin_name}\",
+                # \"{story['id']}\", \"{story['title']}\", \"{story['link']}\", \"{story['published']}\");"""
 
                 insert_story_data_sql_command = f"INSERT OR IGNORE INTO {stories_data_table_name} VALUES(?, ?, ?, ?, ?);"
                 cur.execute(insert_story_data_sql_command,
@@ -304,7 +275,7 @@ def filter_stories_in_hours_range(temp_stories, now, check_x_last_hours):
     return stories
 
 
-def get_coin_prediction_for_last_x_hours(coin_name, check_x_last_hours=12):
+def get_coin_prediction_for_last_x_hours(coin_name, check_x_last_hours=future_prediction_default_last_hours_to_subtract):
     gn = GoogleNews()
     if check_x_last_hours is None:
         check_x_last_hours = 12
@@ -345,7 +316,7 @@ def get_coin_prediction_for_last_x_hours(coin_name, check_x_last_hours=12):
     return coin_prediction
 
 
-def get_coin_prediction_for_last_x_days(coin_name, days_to_subtract=7):
+def get_coin_prediction_for_last_x_days(coin_name, days_to_subtract=future_prediction_default_days_to_subtract):
     gn = GoogleNews()
     if days_to_subtract is None:
         days_to_subtract = 7
@@ -407,24 +378,44 @@ def get_search_terms_predictions(google_terms, days_to_subtract, check_x_last_ho
     return coins_predictions
 
 
-def get_coins_predictions_for_last_x_hours_or_days(coin_names, _days_to_subtract=None, _check_x_last_hours=None):
+def update_coins_predictions_for_last_x_hours_or_days(coin_names, _days_to_subtract=None, _check_x_last_hours=None):
     collected_time = datetime.now().strftime("%y-%m-%d_%H-%M-%S")
 
     predictions = get_search_terms_predictions(coin_names, days_to_subtract=_days_to_subtract,
                                                check_x_last_hours=_check_x_last_hours)
 
+    hours_or_days = None
     if _check_x_last_hours:
+        hours_or_days = "hours"
         throwback_collected_time = f'{str(_check_x_last_hours)} hours'
     else:
+        hours_or_days = "days"
         throwback_collected_time = f'{str(_days_to_subtract)} days'
 
     output_predictions(predictions, collected_time, throwback_collected_time)
 
     predictions_arr = []
     for prediction in predictions.items():
+        while prediction[1][1] > 1:
+            prediction[1][1] = prediction[1][1] / 10
         predictions_arr.append([prediction[0], prediction[1][0], prediction[1][1]])
 
-    return predictions_arr
+    try:
+        con = sqlite3.connect(db_filename)
+        cur = con.cursor()
+        for prediction in predictions_arr:
+            last_prediction_accuracy_sql_command = f"INSERT OR IGNORE INTO {prediction_last_x_time_table_name} VALUES(?, ?, ?, ?, ?);"
+            cur.execute(last_prediction_accuracy_sql_command,
+                        (prediction[0], prediction[1] == "Positive", str(datetime.today()), prediction[2], hours_or_days))
+
+            con.commit()
+        con.close()
+
+    except Exception as ex:
+        return False, f'{ex}'
+
+
+    return True, predictions_arr
 
 
 def get_coin_predictions_history_accuracy(terms_and_tickers=basic_search_term_google_and_yf_ticker_name,
@@ -518,43 +509,36 @@ def get_coin_predictions_history_accuracy_1(terms_and_tickers, dates=None, multi
 
     return return_dict
 
-# def get_coin_predictions_history_accuracy(terms_and_tickers):
-#     jobs = []
-#     manager = mlpcs.Manager()
-#
-#     directory_name = datetime.now().strftime("%Y-%m-%d_(%H-%M-%S)")
-#
-#     directory_name = "Collected_Data\\" + directory_name
-#     if not create_data_collecting_directory(directory_name):
-#         return
-#
-#     return_dict = manager.dict()
-#     if __DETAILED_PRINTING__:
-#         print(f'\nnumber of coins to search: {len(terms_and_tickers)}\n')
-#
-#     for coin_name in terms_and_tickers:
-#         coin_filename = directory_name + '\\' + coin_name[0].strip('"') + "_prediction_accuracy_" + \
-#                         datetime.now().strftime("%y-%m-%d_%H-%M-%S") + ".txt"
-#
-#         # dates_str = []
-#         # dates = get_dates_between_dates('2021-12-04', datetime.now().strftime("%Y-%m-%d"))
-#         dates = get_dates_between_dates('2021-01-01', '2021-01-03')
-#         dates_str = get_str_dates_from_dates(dates)
-#
-#         proc = mlpcs.Process(target=output_crypto_prediction_accuracy_to_file_between_dates,
-#                              args=tuple([coin_name[0], coin_filename, coin_name[1], return_dict, dates_str]))
-#
-#         proc.name = coin_name[0]
-#         proc.start()
-#         if __DETAILED_PRINTING__:
-#             print(f'{proc.name} has started')
-#         jobs.append(proc)
-#
-#     for proc in jobs:
-#         proc.join()
-#         if __DETAILED_PRINTING__:
-#             print(f'{proc.name} has joined')
-#
-#     output_final_data_to_summary_file(directory_name, return_dict)
-#
-#     print("\nAll Set And Done!\n")
+
+def get_monthly_data(term_and_tickers):
+    start_date = (datetime.today() - timedelta(days=30)).strftime("%Y-%m-%d")
+    end_date = datetime.today().strftime("%Y-%m-%d")
+
+    coins_list = []
+    for term in term_and_tickers:
+        coins_list.append(term[0])
+
+    predictions_accuracy = {}
+    for coin_name in coins_list:
+        try:
+            conn = sqlite3.connect(db_filename, timeout=20)
+            cur = conn.cursor()
+
+            coin = coin_name.replace('"', "")
+            get_prediction_accuracy_data_sql_command = f"""SELECT prediction_date, correct_wrong_prediction 
+                                                            FROM {prediction_accuracy_table_name}
+                                                            WHERE prediction_date BETWEEN '{start_date}' AND '{end_date}'
+                                                            AND coin_name = '{coin}'
+                                                            ORDER BY prediction_date asc"""
+
+            cur.execute(get_prediction_accuracy_data_sql_command)
+            coin_accuracy_data = cur.fetchall()
+            predictions_accuracy[coin_name] = coin_accuracy_data
+
+            conn.close()
+        except sqlite3.Error as err:
+            print('Sql error: %s' % (' '.join(err.args)))
+            print("Exception class is: ", err.__class__)
+            return False, f'{err}'
+
+    return True, predictions_accuracy
