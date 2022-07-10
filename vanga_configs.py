@@ -9,7 +9,7 @@ prediction_last_x_time_table_name = "last_prediction_accuracy"
 
 future_prediction_default_days_to_subtract = 7
 future_prediction_default_last_hours_to_subtract = 12
-predictions_accuracy_default_days_to_subtract = 5
+predictions_accuracy_default_days_to_subtract = 30
 
 compound_sentiment_threshold = -0.5
 basic_search_term_google_and_yf_ticker_name = [['Bitcoin', 'BTC-USD'], ['Ethereum', 'ETH-USD'],

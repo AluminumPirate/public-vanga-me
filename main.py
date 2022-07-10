@@ -30,7 +30,8 @@ def get_future_predictions(term_and_tickers, return_dict, days_to_subtract=None,
     return True, predictions
 
 
-def get_predictions_accuracy(term_and_tickers, days_to_subtract=cfg.predictions_accuracy_default_days_to_subtract):
+def get_predictions_accuracy(term_and_tickers, return_dict,
+                             days_to_subtract=cfg.predictions_accuracy_default_days_to_subtract):
     try:
         today = datetime.now()
         start_date = today - timedelta(days=days_to_subtract)
@@ -40,8 +41,10 @@ def get_predictions_accuracy(term_and_tickers, days_to_subtract=cfg.predictions_
                                                                     # start_date="2014-01-01",
                                                                     end_date=today.strftime("%Y-%m-%d"),
                                                                     multiprocess_enabled=True)
-        for prediction in prediction_accuracy.items():
-            print(prediction)
+
+        for pred in prediction_accuracy:
+            return_dict[pred[0]] = pred[1]
+
         return True, prediction_accuracy
     except Exception as ex:
         print(f"{ex}")
@@ -66,6 +69,7 @@ def main():
 
     monthly_start_counter = perf_counter()
     get_future_prediction_counter = perf_counter()
+    get_prediction_accuracy_counter = perf_counter()
 
     proc = None
     manager = mlpcs.Manager()
@@ -93,6 +97,16 @@ def main():
             future_proc.join()
 
             get_future_prediction_counter = perf_counter()
+
+        if (perf_counter() - get_prediction_accuracy_counter) > 60 * 10:  # once every 10 minutes
+            predict_accuracy_dict = manager.dict()
+
+            predict_accuracy_proc = mlpcs.Process(target=get_predictions_accuracy,
+                                                  args=tuple([global_term_and_tickers, predict_accuracy_dict]))
+
+            predict_accuracy_proc.name = "accuracy"
+            predict_accuracy_proc.start()
+            predict_accuracy_proc.join()
 
 
 if __name__ == '__main__':
